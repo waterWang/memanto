@@ -487,11 +487,129 @@ def map_okf(export: dict[str, Any]) -> list[dict[str, Any]]:
     return rows
 
 
+# --------------------------------------------------------------------------
+# Zep (Cloud)
+# --------------------------------------------------------------------------
+
+
+def map_zep(export: dict[str, Any]) -> list[dict[str, Any]]:
+    """Map a Zep Cloud export to rich Memanto memory payloads.
+
+    Zep organizes data by thread (one conversation = one thread). Each thread
+    carries messages (turns) and optionally a summary. We map each message as
+    an ``observation`` and each thread summary as a ``summary``-type memory.
+    Thread-level metadata (user_id, project) is packed into the footer.
+    """
+    rows: list[dict[str, Any]] = []
+    migrated_at = _now_utc()
+    seen_content: set[str] = set()
+
+    for mem in export.get("threads", []) or []:
+        thread_id = mem.get("thread_id") or mem.get("uuid") or ""
+        user_id = mem.get("user_id") or ""
+        project_uuid = mem.get("project_uuid") or ""
+        thread_created = _parse_dt(mem.get("created_at"))
+
+        # --- Map messages as observations ---
+        for msg in mem.get("messages", []) or []:
+            content = (msg.get("content") or "").strip()
+            if not content or content in seen_content:
+                continue
+            seen_content.add(content)
+
+            role = str(msg.get("role", "user"))
+            tags: list[str] = ["zep"]
+            if user_id:
+                tags.append(f"user={user_id}")
+            if thread_id:
+                tags.append(f"thread={thread_id}")
+
+            created_at = _parse_dt(msg.get("created_at")) or thread_created
+
+            footer = _format_supporting_data(
+                [
+                    ("Source", f"zep:{msg.get('uuid')}" if msg.get("uuid") else None),
+                    ("Zep thread", thread_id),
+                    ("Zep user", user_id),
+                    ("Role", role),
+                    ("Message name", msg.get("name")),
+                    ("Zep project", project_uuid),
+                    (
+                        "Source created_at",
+                        created_at.isoformat() if created_at else None,
+                    ),
+                ]
+            )
+
+            # Prefix role label so the context is clear
+            display_content = content
+            if role in ("user", "assistant", "system", "tool", "function"):
+                display_content = f"[{role.capitalize()}]: {content}"
+
+            rows.append(
+                {
+                    "title": _title_from(display_content),
+                    "content": _attach_footer(display_content, footer),
+                    "type": "observation",
+                    "tags": tags,
+                    "confidence": 0.8,
+                    "source": "zep",
+                    "source_ref": str(msg.get("uuid")) if msg.get("uuid") else None,
+                    "provenance": "imported",
+                    "created_at": created_at,
+                    "updated_at": migrated_at,
+                }
+            )
+
+        # --- Map thread summary as a summary memory ---
+        summary_text = mem.get("summary") or ""
+        if summary_text and summary_text not in seen_content:
+            seen_content.add(summary_text)
+            summary_created = _parse_dt(mem.get("summary_created_at")) or thread_created
+
+            tags_summary: list[str] = ["zep", "summary"]
+            if user_id:
+                tags_summary.append(f"user={user_id}")
+            if thread_id:
+                tags_summary.append(f"thread={thread_id}")
+
+            footer_summary = _format_supporting_data(
+                [
+                    ("Source", f"zep:summary:{thread_id}" if thread_id else None),
+                    ("Zep thread", thread_id),
+                    ("Zep user", user_id),
+                    ("Zep project", project_uuid),
+                    (
+                        "Source created_at",
+                        summary_created.isoformat() if summary_created else None,
+                    ),
+                ]
+            )
+
+            rows.append(
+                {
+                    "title": _title_from(summary_text),
+                    "content": _attach_footer(summary_text, footer_summary),
+                    "type": "summary",
+                    "tags": tags_summary,
+                    "confidence": 0.9,
+                    "source": "zep",
+                    "source_ref": f"summary:{thread_id}" if thread_id else None,
+                    "provenance": "imported",
+                    "created_at": summary_created,
+                    "updated_at": migrated_at,
+                }
+            )
+
+    return rows
+
+
 MAPPERS: dict[str, Callable[[dict[str, Any]], list[dict[str, Any]]]] = {
     "mem0": map_mem0,
     "letta": map_letta,
     "supermemory": map_supermemory,
     "okf": map_okf,
+    "zep": map_zep,
 }
 
 

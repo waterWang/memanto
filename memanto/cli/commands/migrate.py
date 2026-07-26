@@ -63,6 +63,16 @@ from memanto.cli.analyze.supermemory_compare import (
     compute_metrics as compute_supermemory_metrics,
 )
 from memanto.cli.analyze.supermemory_export import run_supermemory_export
+from memanto.cli.analyze.zep_compare import (
+    build_llm_prompt as build_zep_llm_prompt,
+)
+from memanto.cli.analyze.zep_compare import (
+    build_report_markdown as build_zep_report_markdown,
+)
+from memanto.cli.analyze.zep_compare import (
+    compute_metrics as compute_zep_metrics,
+)
+from memanto.cli.analyze.zep_export import run_zep_export
 from memanto.cli.commands._shared import (
     BOLD_PRIMARY,
     BRIGHT,
@@ -109,6 +119,14 @@ _PROVIDER_BUNDLES: dict[str, dict[str, Any]] = {
         "report": build_supermemory_report_markdown,
         "export_filename": "supermemory_export.json",
     },
+    "zep": {
+        "label": "Zep",
+        "exporter": run_zep_export,
+        "metrics": compute_zep_metrics,
+        "prompt": build_zep_llm_prompt,
+        "report": build_zep_report_markdown,
+        "export_filename": "zep_export.json",
+    },
 }
 
 
@@ -135,6 +153,12 @@ def _resolve_provider_key(
             config_manager.set_supermemory_api_key,
             "https://supermemory.ai/docs",
             "SUPERMEMORY_API_KEY",
+        ),
+        "zep": (
+            config_manager.get_zep_api_key,
+            config_manager.set_zep_api_key,
+            "https://docs.getzep.com",
+            "ZEP_API_KEY",
         ),
     }
     get_fn, set_fn, docs_url, env_name = getters[provider]
@@ -653,6 +677,58 @@ def migrate_supermemory(
     """Migrate a Supermemory account into the active (or selected) Memanto agent."""
     _run_migrate_flow(
         provider="supermemory",
+        api_key=api_key,
+        file=file,
+        agent=agent,
+        dry_run=dry_run,
+        report=report,
+    )
+
+
+@migrate_app.command("zep")
+def migrate_zep(
+    api_key: str | None = typer.Option(
+        None,
+        "--api-key",
+        envvar="ZEP_API_KEY",
+        help="Zep Cloud API key (saved to ~/.memanto/.env)",
+    ),
+    file: Path | None = typer.Option(
+        None,
+        "--file",
+        "-f",
+        help="Existing Zep export JSON (skip live export).",
+    ),
+    agent: str | None = typer.Option(
+        None,
+        "--agent",
+        "-a",
+        help="Target Memanto agent id (defaults to the active agent).",
+    ),
+    dry_run: bool = typer.Option(
+        False,
+        "--dry-run",
+        help="Preview the mapping and savings report without writing.",
+    ),
+    report: bool = typer.Option(
+        False,
+        "--report",
+        help="Also write the token/latency/storage savings report on a real run.",
+    ),
+):
+    """Migrate Zep Cloud threads into the active (or selected) Memanto agent.
+
+    Connects to the Zep Cloud API (v2), lists all threads, fetches
+    messages and summaries per thread, then maps them onto Memanto
+    schema as observations and summary memories.
+
+    Examples:
+        memanto migrate zep --dry-run
+        memanto migrate zep --file ./zep_export.json
+        memanto migrate zep --agent my-agent --report
+    """
+    _run_migrate_flow(
+        provider="zep",
         api_key=api_key,
         file=file,
         agent=agent,

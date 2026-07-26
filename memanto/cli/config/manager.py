@@ -189,6 +189,21 @@ class ConfigManager:
         """Save Letta API key to ~/.memanto/.env."""
         self._set_env_var("LETTA_API_KEY", _normalize_duplicated_api_key(api_key))
 
+    def get_zep_api_key(self) -> str | None:
+        """Get Zep API key from ~/.memanto/.env."""
+        if self.env_file.exists():
+            load_dotenv(self.env_file, override=True)
+        key = (
+            os.environ.get("ZEP_API_KEY") or os.environ.get("zep_api_key") or ""
+        ).strip()
+        if not key:
+            return None
+        return _normalize_duplicated_api_key(key)
+
+    def set_zep_api_key(self, api_key: str) -> None:
+        """Save Zep API key to ~/.memanto/.env."""
+        self._set_env_var("ZEP_API_KEY", _normalize_duplicated_api_key(api_key))
+
     def _set_env_var(self, name: str, value: str) -> None:
         """Write a single variable to ~/.memanto/.env and update os.environ."""
         self.config_dir.mkdir(parents=True, exist_ok=True)
